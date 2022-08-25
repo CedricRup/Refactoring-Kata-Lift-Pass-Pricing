@@ -2,17 +2,17 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp2.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <DebugType>portable</DebugType>
     <AssemblyName>LiftPassPricing</AssemblyName>
     <PackageId>LiftPassPricing</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MySql.Data" Version="8.0.15" />
+    <PackageReference Include="MySql.Data" Version="8.0.30" />
     <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel" Version="2.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Owin" Version="2.2.0" />
-    <PackageReference Include="Nancy" Version="2.0.0-clinteastwood" />
+    <PackageReference Include="Microsoft.AspNetCore.Owin" Version="6.0.8" />
+    <PackageReference Include="Nancy" Version="2.0.0" />
   </ItemGroup>
 
 </Project>
