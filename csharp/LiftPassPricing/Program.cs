@@ -1,38 +1,146 @@
 ﻿using System;
-using System.IO;
+using System.Globalization;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Nancy.Owin;
+using Microsoft.AspNetCore.Http;
+using MySql.Data.MySqlClient;
 
-namespace LiftPassPricing
-{
-    /// <summary>Start Nancy.</summary>
-    /// <seealso>"https://www.hanselman.com/blog/ExploringAMinimalWebAPIWithNETCoreAndNancyFX.aspx"</seealso>
-    /// <seealso>"https://github.com/NancyFx/Nancy/tree/master/samples/Nancy.Demo.Hosting.Kestrel"</seealso>
-    public class Program
-    {
-
-        public static void Main(string[] args)
-        {
-            var host = new WebHostBuilder()
-                .UseContentRoot(Directory.GetCurrentDirectory())
-                .UseKestrel()
-                .UseStartup<Startup>()
-                .Build();
-
-            Console.WriteLine(@"LiftPassPricing Api started on 5000,
+Console.WriteLine(@"LiftPassPricing Api started on 5000,
 you can open http://localhost:5000/prices?type=night&age=23&date=2019-02-18 in a navigator
 and you'll get the price of the list pass for the day.");
-            host.Run();
-        }
-    }
 
-    public class Startup
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+var connection = new MySqlConnection
+{
+    ConnectionString = @"Database=lift_pass;Data Source=localhost;User Id=root;Password=mysql"
+};
+connection.Open();
+
+app.MapPut("/prices", (int cost, string type) =>
+{
+    using (var command = new MySqlCommand( //
+               "INSERT INTO base_price (type, cost) VALUES (@type, @cost) " + //
+               "ON DUPLICATE KEY UPDATE cost = @cost;", connection))
     {
-        public void Configure(IApplicationBuilder app)
-        {
-            app.UseOwin(x => x.UseNancy());
-        }
+        command.Parameters.AddWithValue("@type", type);
+        command.Parameters.AddWithValue("@cost", cost);
+        command.Prepare();
+        command.ExecuteNonQuery();
     }
 
+    return "";
+});
+
+app.MapGet("/prices", (HttpContext context) =>
+{
+    int? age = context.Request.Query["age"].Count != 0 ? Int32.Parse(context.Request.Query["age"][0]) : null;
+
+    using (var costCmd = new MySqlCommand( //
+               "SELECT cost FROM base_price " + //
+               "WHERE type = @type", connection))
+    {
+        costCmd.Parameters.AddWithValue("@type", context.Request.Query["type"][0]);
+        costCmd.Prepare();
+        double result = (int)costCmd.ExecuteScalar();
+
+        int reduction;
+        var isHoliday = false;
+
+        if (age != null && age < 6)
+        {
+            return "{ \"cost\": 0}";
+        }
+        else
+        {
+            reduction = 0;
+
+            if (!"night".Equals(context.Request.Query["type"][0]))
+            {
+                using (var holidayCmd = new MySqlCommand( //
+                           "SELECT * FROM holidays", connection))
+                {
+                    holidayCmd.Prepare();
+                    using (var holidays = holidayCmd.ExecuteReader())
+                    {
+                        while (holidays.Read())
+                        {
+                            var holiday = holidays.GetDateTime("holiday");
+                            if (context.Request.Query["date"].Count != 0)
+                            {
+                                DateTime d = DateTime.ParseExact(context.Request.Query["date"][0], "yyyy-MM-dd",
+                                    CultureInfo.InvariantCulture);
+                                if (d.Year == holiday.Year &&
+                                    d.Month == holiday.Month &&
+                                    d.Date == holiday.Date)
+                                {
+                                    isHoliday = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (context.Request.Query["date"].Count != 0)
+                {
+                    DateTime d = DateTime.ParseExact(context.Request.Query["date"][0], "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture);
+                    if (!isHoliday && (int)d.DayOfWeek == 1)
+                    {
+                        reduction = 35;
+                    }
+                }
+
+                // TODO apply reduction for others
+                if (age != null && age < 15)
+                {
+                    return "{ \"cost\": " + (int)Math.Ceiling(result * .7) + "}";
+                }
+                else
+                {
+                    if (age == null)
+                    {
+                        double cost = result * (1 - reduction / 100.0);
+                        return "{ \"cost\": " + (int)Math.Ceiling(cost) + "}";
+                    }
+                    else
+                    {
+                        if (age > 64)
+                        {
+                            double cost = result * .75 * (1 - reduction / 100.0);
+                            return "{ \"cost\": " + (int)Math.Ceiling(cost) + "}";
+                        }
+                        else
+                        {
+                            double cost = result * (1 - reduction / 100.0);
+                            return "{ \"cost\": " + (int)Math.Ceiling(cost) + "}";
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (age != null && age >= 6)
+                {
+                    if (age > 64)
+                    {
+                        return "{ \"cost\": " + (int)Math.Ceiling(result * .4) + "}";
+                    }
+                    else
+                    {
+                        return "{ \"cost\": " + result + "}";
+                    }
+                }
+                else
+                {
+                    return "{ \"cost\": 0}";
+                }
+            }
+        }
+    }
+});
+app.MapGet("/", () => "Hello World!");
+app.Run();
+
+public partial class Program
+{
 }
