@@ -1,49 +1,54 @@
 using System;
-using Xunit;
-using Nancy;
-using Nancy.Testing;
-using LiftPassPricing;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
+using Xunit;
 
 namespace LiftPassPricingTests
 {
-    /// <seealso>"http://www.marcusoft.net/2013/01/NancyTesting1.html"</seealso>
-    public class PricesTest : IDisposable
+    public class PricesTest : IAsyncLifetime
     {
-        private readonly Prices prices;
-        private readonly Browser browser;
+        private readonly WebApplicationFactory<Program> _application;
+        private readonly HttpClient _client;
 
         public PricesTest()
         {
-            this.prices = new Prices();
-            this.browser = new Browser(with => with.Module(prices));
-
-            CreatePrice("1jour", 35);
-            CreatePrice("night", 19);
-        }
-
-        private void CreatePrice(string type, int cost)
-        {
-            var result = browser.Put("/prices", with =>
-            {
-                with.Query("type", type);
-                with.Query("cost", cost.ToString());
-                with.HttpRequest();
-            });
-
-            Assert.Equal("application/json", result.Result.ContentType);
-            Assert.Equal(HttpStatusCode.OK, result.Result.StatusCode); // TODO should be 204
-        }
-
-        public void Dispose()
-        {
-            prices.connection.Close();
+            _application = new WebApplicationFactory<Program>();
+            _client = _application.CreateClient();
         }
 
         [Fact]
-        public void DefaultCost()
+        public async void DoesSomething()
         {
-            Response json = ObtainPrice("type", "1jour");
+            var response = await _client.GetAsync("/");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.Equal("Hello World!", content);
+        }
+
+        private async Task CreatePrice(string type, int cost)
+        {
+            var query = new Dictionary<string, string>();
+            query.Add("type", type);
+            query.Add("cost",cost.ToString());
+
+
+            var url  = QueryHelpers.AddQueryString("prices", query);
+            var result = await _client.PutAsync(url,null);
+
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode); // TODO should be 204
+        }
+
+        [Fact]
+        public async void DefaultCost()
+        {
+            Response json = await ObtainPrice("1jour");
             Assert.Equal(35, json.Cost);
         }
 
@@ -55,16 +60,16 @@ namespace LiftPassPricingTests
         [InlineData(25, 35)]
         [InlineData(64, 35)]
         [InlineData(65, 27)]
-        public void WorksForAllAges(int age, int expectedCost)
+        public async void WorksForAllAges(int age, int expectedCost)
         {
-            Response json = ObtainPrice("type", "1jour", "age", age.ToString());
+            Response json =  await ObtainPrice("1jour", age);
             Assert.Equal(expectedCost, json.Cost);
         }
 
-        [Fact(Skip="ignored")]
-        public void DefaultNightCost()
+        [Fact(Skip = "ignored")]
+        public async void DefaultNightCost()
         {
-            Response json = ObtainPrice("type", "night");
+            Response json = await ObtainPrice("night");
             Assert.Equal(19, json.Cost);
         }
 
@@ -74,9 +79,9 @@ namespace LiftPassPricingTests
         [InlineData(25, 19)]
         [InlineData(64, 19)]
         [InlineData(65, 8)]
-        public void WorksForNightPasses(int age, int expectedCost)
+        public async void WorksForNightPasses(int age, int expectedCost)
         {
-            Response json = ObtainPrice("type", "night", "age", age.ToString());
+            Response json = await ObtainPrice("night", age);
             Assert.Equal(expectedCost, json.Cost);
         }
 
@@ -85,29 +90,45 @@ namespace LiftPassPricingTests
         [InlineData(15, "2019-02-25", 35)]
         [InlineData(15, "2019-03-11", 23)]
         [InlineData(65, "2019-03-11", 18)]
-        public void WorksForMondayDeals(int age, string date, int expectedCost)
+        public async void WorksForMondayDeals(int age, string date, int expectedCost)
         {
-            Response json = ObtainPrice("type", "1jour", "age", age.ToString(), "date", date);
+            Response json = await ObtainPrice( "1jour",  age, DateTime.Parse(date));
             Assert.Equal(expectedCost, json.Cost);
         }
 
         // TODO 2-4, and 5, 6 day pass
 
-        private Response ObtainPrice(params string[] keyValuePairs)
+        private async Task<Response> ObtainPrice(string type, int? age = null, DateTime? date = null)
         {
-            var result = browser.Get("/prices", with =>
-            {
-                for (int i = 0; i < keyValuePairs.Length; i += 2)
-                {
-                    with.Query(keyValuePairs[i], keyValuePairs[i + 1]);
-                }
-                with.HttpRequest();
-            });
+            var query = new Dictionary<string, string>();
+            query.Add("type", type);
+            query.Add("age",age?.ToString());
+            query.Add("date",date?.ToString("yyyy-MM-dd"));
 
-            Assert.Equal("application/json", result.Result.ContentType);
-            Assert.Equal(HttpStatusCode.OK, result.Result.StatusCode);
+            var url  = QueryHelpers.AddQueryString("prices", query);
+            var result = await _client.GetAsync(url);
 
-            return result.Result.Body.DeserializeJson<Response>();
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode); // TODO should be 204
+            
+            
+
+            Assert.Equal("application/json", result.Content.Headers.ContentType.MediaType);
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+
+            return await result.Content.ReadFromJsonAsync<Response>();
+        }
+
+        public async Task InitializeAsync()
+        {
+            await CreatePrice("1jour", 35);
+            await CreatePrice("night", 19);
+
+        }
+
+        public Task  DisposeAsync()
+        {
+            _client.Dispose();
+            return _application.DisposeAsync().AsTask();
         }
     }
 
