@@ -90,7 +90,8 @@ namespace LiftPassPricingTests
         [InlineData(15, "2019-02-25", 35)]
         [InlineData(15, "2019-03-11", 23)]
         [InlineData(65, "2019-03-11", 18)]
-        public async void WorksForMondayDeals(int age, string date, int expectedCost)
+        [InlineData(null, "2022-08-29", 23)]
+        public async void WorksForMondayDeals(int? age, string date, int expectedCost)
         {
             Response json = await ObtainPrice( "1jour",  age, DateTime.Parse(date));
             Assert.Equal(expectedCost, json.Cost);
